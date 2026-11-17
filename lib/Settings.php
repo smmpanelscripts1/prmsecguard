@@ -52,6 +52,12 @@ class Settings
                 'lookback_days' => 7,
                 'multiplier' => 3.0,
             ],
+            // Hosting (nginx egg /sites) uses the same activity stream — mass_write, mass_download, sftp_* apply.
+            'hosting' => [
+                'cover_file_burst' => true,
+                'cover_sftp_ip' => true,
+                'note' => 'Hosting sites share SecGuard rules; no per-site allowlist in V1.',
+            ],
         ];
     }
 
