@@ -9,7 +9,7 @@ use Pterodactyl\Models\User;
 
 $prmSecGuardLoad = static function (): void {
     $base = '/blueprint_extensions/prmsecguard/lib';
-    foreach (['Settings.php', 'AlertStore.php', 'Notifier.php', 'BanBridge.php', 'ConsoleStore.php', 'GuardEngine.php'] as $file) {
+    foreach (['Settings.php', 'AlertStore.php', 'Notifier.php', 'BanBridge.php', 'ConsoleStore.php', 'GuardEngine.php', 'HostFirewall.php'] as $file) {
         $path = $base . '/' . $file;
         if (is_file($path)) {
             require_once $path;
@@ -348,6 +348,80 @@ Route::post('/config', function (Request $request) use ($prmSecGuardLoad) {
     \PrmSecGuard\Settings::put($data);
 
     return response()->json(['ok' => true, 'config' => \PrmSecGuard\Settings::get()]);
+})->middleware(['auth', AdminAuthenticate::class]);
+
+Route::get('/firewall', function (Request $request) use ($prmSecGuardLoad) {
+    $prmSecGuardLoad();
+    $cfg = \PrmSecGuard\HostFirewall::get();
+    $clientIp = (string) $request->ip();
+
+    return response()->json([
+        'firewall' => $cfg,
+        'client_ip' => $clientIp,
+        'catalog' => array_keys(\PrmSecGuard\HostFirewall::serviceCatalog()),
+        'export_dir' => \PrmSecGuard\HostFirewall::EXPORT_DIR,
+    ]);
+})->middleware(['auth', AdminAuthenticate::class]);
+
+Route::post('/firewall', function (Request $request) use ($prmSecGuardLoad) {
+    $prmSecGuardLoad();
+    $data = $request->all();
+    if (!is_array($data)) {
+        return response()->json(['message' => 'Invalid'], 422);
+    }
+    $actor = optional($request->user())->username ?: optional($request->user())->email ?: 'admin';
+    // Safety: whitelist/deny on panel without current IP → auto-add client IP.
+    if (!empty($data['services']['panel']) && is_array($data['services']['panel'])) {
+        $pol = (string) ($data['services']['panel']['policy'] ?? 'allow');
+        if (in_array($pol, ['whitelist', 'deny'], true) && !empty($data['services']['panel']['enabled'])) {
+            $ip = (string) $request->ip();
+            $sources = \PrmSecGuard\HostFirewall::parseSources($data['services']['panel']['sources'] ?? []);
+            if ($pol === 'whitelist' && $ip !== '' && !in_array($ip, $sources, true)) {
+                $sources[] = $ip;
+                $data['services']['panel']['sources'] = $sources;
+            }
+            if ($pol === 'deny') {
+                // App-level deny still allows admin session; host script is drop — warn via flag.
+                $data['_panel_deny'] = true;
+            }
+        }
+    }
+    $cfg = \PrmSecGuard\HostFirewall::put($data, $actor);
+
+    return response()->json([
+        'ok' => true,
+        'firewall' => $cfg,
+        'panel_deny_warning' => !empty($data['_panel_deny']),
+        'client_ip' => (string) $request->ip(),
+    ]);
+})->middleware(['auth', AdminAuthenticate::class]);
+
+Route::post('/firewall/apply', function (Request $request) use ($prmSecGuardLoad) {
+    $prmSecGuardLoad();
+    $actor = optional($request->user())->username ?: optional($request->user())->email ?: 'admin';
+    $dry = $request->boolean('dry_run', false);
+
+    return response()->json(\PrmSecGuard\HostFirewall::apply($actor, $dry));
+})->middleware(['auth', AdminAuthenticate::class]);
+
+Route::get('/firewall/script', function (Request $request) use ($prmSecGuardLoad) {
+    $prmSecGuardLoad();
+    $cfg = \PrmSecGuard\HostFirewall::get();
+    $format = strtolower((string) $request->query('format', $cfg['backend'] ?? 'nftables'));
+    if ($format === 'firewalld') {
+        $body = \PrmSecGuard\HostFirewall::renderFirewalld($cfg);
+        $name = 'host-firewall.firewalld.sh';
+        $type = 'text/x-shellscript; charset=UTF-8';
+    } else {
+        $body = \PrmSecGuard\HostFirewall::renderNftables($cfg);
+        $name = 'host-firewall.nft';
+        $type = 'text/plain; charset=UTF-8';
+    }
+
+    return response($body, 200, [
+        'Content-Type' => $type,
+        'Content-Disposition' => 'attachment; filename="' . $name . '"',
+    ]);
 })->middleware(['auth', AdminAuthenticate::class]);
 
 unset($ruleKeys);

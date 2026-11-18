@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="/assets/extensions/prmsecguard/admin.style.css?v=1.2.1">
+<link rel="stylesheet" href="/assets/extensions/prmsecguard/admin.style.css?v=1.3.0">
 
 <div class="prmsec-wrap">
   <div class="row">
@@ -61,6 +61,97 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-xs-12">
+      <div class="box box-warning">
+        <div class="box-header with-border">
+          <h3 class="box-title">Host Firewall</h3>
+          <div class="box-tools pull-right">
+            <span class="prmsec-muted" id="fw-apply-meta">—</span>
+          </div>
+        </div>
+        <div class="box-body">
+          <p class="prmsec-muted" style="margin-top:0">
+            Node servisleri için allow / deny / IP whitelist. Panel whitelist, prmadvanched ile anında uygulanır.
+            Host paket filtreleri (<code>nftables</code> / <code>firewalld</code>) script olarak dışa aktarılır — Docker panel içinden host netfilter’a yazılmaz.
+          </p>
+          <div class="prmsec-toolbar">
+            <label><input type="checkbox" id="fw-enabled"> Firewall aktif</label>
+            <label><input type="checkbox" id="fw-sync-panel" checked> Panel app senkron</label>
+            <select id="fw-backend" class="form-control input-sm" style="width:140px;display:inline-block">
+              <option value="nftables">nftables</option>
+              <option value="firewalld">firewalld</option>
+            </select>
+            <button type="button" class="btn btn-success btn-sm" id="fw-save">Kaydet</button>
+            <button type="button" class="btn btn-primary btn-sm" id="fw-apply">Uygula / Export</button>
+            <a class="btn btn-default btn-sm" id="fw-download" href="/extensions/prmsecguard/firewall/script?format=nftables">Script indir</a>
+            <span class="prmsec-muted">IP’n: <code id="fw-client-ip">—</code></span>
+          </div>
+          <div class="prmsec-msg" id="fw-msg"></div>
+          <div class="table-responsive">
+            <table class="table table-striped table-hover prmsec-table" id="fw-table">
+              <thead>
+                <tr>
+                  <th style="width:40px"></th>
+                  <th>Servis</th>
+                  <th style="width:110px">Port</th>
+                  <th style="width:120px">Politika</th>
+                  <th>Kaynaklar</th>
+                  <th style="width:90px"></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="prmsec-fw-preview">
+            <div class="prmsec-rule__head"><h4>Son export / audit</h4></div>
+            <pre class="prmsec-fw-pre" id="fw-script-preview">—</pre>
+            <ul class="prmsec-fw-audit" id="fw-audit"></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="fw-modal" class="prmsec-modal" aria-hidden="true">
+    <div class="prmsec-modal__backdrop" data-fw-close></div>
+    <div class="prmsec-modal__card" role="dialog">
+      <div class="prmsec-modal__head">
+        <h3 id="fw-modal-title">Servis</h3>
+        <button type="button" class="btn btn-xs btn-default" data-fw-close>×</button>
+      </div>
+      <div class="prmsec-modal__body">
+        <input type="hidden" id="fw-edit-id">
+        <label class="prmsec-rule__toggle"><input type="checkbox" id="fw-edit-en"> Servis aktif</label>
+        <div class="prmsec-fields" style="margin-top:12px">
+          <div class="prmsec-field"><label>Portlar</label><input class="form-control" type="text" id="fw-edit-ports" placeholder="8080"></div>
+          <div class="prmsec-field"><label>Protokol</label>
+            <select class="form-control" id="fw-edit-proto">
+              <option value="tcp">tcp</option>
+              <option value="udp">udp</option>
+            </select>
+          </div>
+          <div class="prmsec-field" style="grid-column:1/-1"><label>Politika</label>
+            <div class="prmsec-fw-policies">
+              <label><input type="radio" name="fw-policy" value="allow"> Allow — herkese açık</label>
+              <label><input type="radio" name="fw-policy" value="deny"> Deny — tümünü engelle</label>
+              <label><input type="radio" name="fw-policy" value="whitelist"> Whitelist — sadece kaynak IP</label>
+            </div>
+          </div>
+          <div class="prmsec-field" style="grid-column:1/-1"><label>Kaynak IP / CIDR (satır veya virgül)</label>
+            <textarea class="form-control" id="fw-edit-sources" rows="4" placeholder="203.0.113.10&#10;10.0.0.0/8"></textarea>
+          </div>
+          <div class="prmsec-field" style="grid-column:1/-1"><label>Not</label><input class="form-control" type="text" id="fw-edit-note"></div>
+        </div>
+      </div>
+      <div class="prmsec-modal__foot">
+        <button type="button" class="btn btn-default" data-fw-close>İptal</button>
+        <button type="button" class="btn btn-primary" id="fw-edit-add-me">IP’mi ekle</button>
+        <button type="button" class="btn btn-success" id="fw-edit-save">Tamam</button>
       </div>
     </div>
   </div>
@@ -143,6 +234,10 @@
   const empty = document.getElementById('prmsec-empty');
   let cfgCache = {};
   let banAvailable = false;
+  let fwCache = { services: {} };
+  let fwClientIp = '';
+
+  const FW_POLICY_LABEL = { allow: 'Allow', deny: 'Deny', whitelist: 'Whitelist' };
 
   const RULES = [
     { key: 'mass_delete', title: 'Toplu silme', fields: [['threshold','Eşik'],['window_sec','Pencere (sn)']] },
@@ -442,7 +537,167 @@
     }
   };
 
-  refresh().catch(e => {
+  function fwPolicyBadge(p) {
+    const cls = p === 'deny' ? 'is-deny' : (p === 'whitelist' ? 'is-white' : 'is-allow');
+    return `<span class="prmsec-fw-badge ${cls}">${esc(FW_POLICY_LABEL[p] || p)}</span>`;
+  }
+
+  function renderFirewall(fw) {
+    fwCache = fw || { services: {} };
+    document.getElementById('fw-enabled').checked = !!fwCache.enabled;
+    document.getElementById('fw-sync-panel').checked = fwCache.sync_panel_app !== false;
+    document.getElementById('fw-backend').value = fwCache.backend === 'firewalld' ? 'firewalld' : 'nftables';
+    const meta = [];
+    if (fwCache.last_applied_at) meta.push(fmtTs(fwCache.last_applied_at));
+    if (fwCache.last_apply_status) meta.push(fwCache.last_apply_status);
+    document.getElementById('fw-apply-meta').textContent = meta.join(' · ') || 'Henüz uygulanmadı';
+    document.getElementById('fw-download').href =
+      '/extensions/prmsecguard/firewall/script?format=' + encodeURIComponent(document.getElementById('fw-backend').value);
+
+    const tb = document.querySelector('#fw-table tbody');
+    tb.innerHTML = '';
+    Object.keys(fwCache.services || {}).forEach(id => {
+      const s = fwCache.services[id];
+      const tr = document.createElement('tr');
+      if (!s.enabled) tr.classList.add('prmsec-fw-off');
+      const ports = (s.ports || []).join(', ');
+      const src = (s.sources || []).length
+        ? (s.sources.slice(0, 3).join(', ') + (s.sources.length > 3 ? ' +' + (s.sources.length - 3) : ''))
+        : (s.policy === 'whitelist' ? '— (boş = herkesi drop)' : '—');
+      tr.innerHTML = `
+        <td><input type="checkbox" data-fw-en="${esc(id)}" ${s.enabled ? 'checked' : ''}></td>
+        <td><strong>${esc(s.label || id)}</strong><div class="prmsec-muted">${esc(s.note || id)}</div></td>
+        <td>${esc(ports)} / ${esc(s.proto || 'tcp')}</td>
+        <td>${fwPolicyBadge(s.policy || 'allow')}</td>
+        <td class="prmsec-muted">${esc(src)}</td>
+        <td><button type="button" class="btn btn-xs btn-default" data-fw-edit="${esc(id)}">Düzenle</button></td>`;
+      tb.appendChild(tr);
+    });
+
+    const audit = document.getElementById('fw-audit');
+    audit.innerHTML = '';
+    (fwCache.audit || []).slice(0, 8).forEach(a => {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="prmsec-muted">${esc(fmtTs(a.ts))}</span> <strong>${esc(a.action)}</strong> ${esc(a.detail || '')} <span class="prmsec-muted">· ${esc(a.actor || '')}</span>`;
+      audit.appendChild(li);
+    });
+  }
+
+  function openFwModal(id) {
+    const s = fwCache.services[id];
+    if (!s) return;
+    document.getElementById('fw-edit-id').value = id;
+    document.getElementById('fw-modal-title').textContent = (s.label || id) + ' — firewall';
+    document.getElementById('fw-edit-en').checked = !!s.enabled;
+    document.getElementById('fw-edit-ports').value = (s.ports || []).join(', ');
+    document.getElementById('fw-edit-proto').value = s.proto === 'udp' ? 'udp' : 'tcp';
+    document.getElementById('fw-edit-sources').value = (s.sources || []).join('\n');
+    document.getElementById('fw-edit-note').value = s.note || '';
+    const pol = s.policy || 'allow';
+    document.querySelectorAll('input[name="fw-policy"]').forEach(r => { r.checked = r.value === pol; });
+    document.getElementById('fw-modal').classList.add('is-open');
+    document.getElementById('fw-modal').setAttribute('aria-hidden', 'false');
+  }
+
+  function closeFwModal() {
+    document.getElementById('fw-modal').classList.remove('is-open');
+    document.getElementById('fw-modal').setAttribute('aria-hidden', 'true');
+  }
+
+  function readFirewallPayload() {
+    return {
+      enabled: document.getElementById('fw-enabled').checked,
+      sync_panel_app: document.getElementById('fw-sync-panel').checked,
+      backend: document.getElementById('fw-backend').value,
+      services: fwCache.services || {},
+    };
+  }
+
+  async function loadFirewall() {
+    const data = await api('/firewall');
+    fwClientIp = data.client_ip || '';
+    document.getElementById('fw-client-ip').textContent = fwClientIp || '—';
+    renderFirewall(data.firewall || {});
+  }
+
+  document.querySelector('#fw-table').addEventListener('click', (ev) => {
+    const edit = ev.target.closest('[data-fw-edit]');
+    if (edit) openFwModal(edit.getAttribute('data-fw-edit'));
+  });
+  document.querySelector('#fw-table').addEventListener('change', (ev) => {
+    const en = ev.target.closest('[data-fw-en]');
+    if (!en) return;
+    const id = en.getAttribute('data-fw-en');
+    if (fwCache.services[id]) fwCache.services[id].enabled = !!en.checked;
+  });
+  document.querySelectorAll('[data-fw-close]').forEach(el => {
+    el.addEventListener('click', closeFwModal);
+  });
+  document.getElementById('fw-edit-add-me').onclick = () => {
+    if (!fwClientIp) return;
+    const ta = document.getElementById('fw-edit-sources');
+    const cur = ta.value.trim();
+    if (cur.split(/[\s,;]+/).includes(fwClientIp)) return;
+    ta.value = cur ? (cur + '\n' + fwClientIp) : fwClientIp;
+  };
+  document.getElementById('fw-edit-save').onclick = () => {
+    const id = document.getElementById('fw-edit-id').value;
+    if (!fwCache.services[id]) return;
+    const policy = (document.querySelector('input[name="fw-policy"]:checked') || {}).value || 'allow';
+    if ((policy === 'deny' || policy === 'whitelist') && id === 'panel') {
+      if (!confirm('Panel erişimini kısıtlıyorsun. Mevcut IP’n whitelist’e eklenecek. Devam?')) return;
+    }
+    const ports = document.getElementById('fw-edit-ports').value
+      .split(/[\s,;]+/).map(x => parseInt(x, 10)).filter(n => n >= 1 && n <= 65535);
+    const sources = document.getElementById('fw-edit-sources').value
+      .split(/[\s,;]+/).map(x => x.trim()).filter(Boolean);
+    fwCache.services[id] = Object.assign({}, fwCache.services[id], {
+      enabled: document.getElementById('fw-edit-en').checked,
+      ports,
+      proto: document.getElementById('fw-edit-proto').value,
+      policy,
+      sources,
+      note: document.getElementById('fw-edit-note').value.trim(),
+    });
+    closeFwModal();
+    renderFirewall(fwCache);
+  };
+  document.getElementById('fw-backend').onchange = () => {
+    document.getElementById('fw-download').href =
+      '/extensions/prmsecguard/firewall/script?format=' + encodeURIComponent(document.getElementById('fw-backend').value);
+  };
+  document.getElementById('fw-save').onclick = async () => {
+    const msg = document.getElementById('fw-msg');
+    msg.className = 'prmsec-msg';
+    try {
+      const r = await api('/firewall', { method: 'POST', body: JSON.stringify(readFirewallPayload()) });
+      renderFirewall(r.firewall || {});
+      msg.textContent = r.panel_deny_warning
+        ? 'Kaydedildi. Uyarı: Panel deny — host script drop eder; app seviyesinde admin oturum muaf.'
+        : 'Firewall kaydedildi.';
+      msg.className = 'prmsec-msg is-ok';
+    } catch (e) {
+      msg.textContent = e.message || String(e);
+      msg.className = 'prmsec-msg is-fail';
+    }
+  };
+  document.getElementById('fw-apply').onclick = async () => {
+    const msg = document.getElementById('fw-msg');
+    msg.className = 'prmsec-msg';
+    try {
+      await api('/firewall', { method: 'POST', body: JSON.stringify(readFirewallPayload()) });
+      const r = await api('/firewall/apply', { method: 'POST', body: JSON.stringify({}) });
+      if (r.config) renderFirewall(r.config);
+      document.getElementById('fw-script-preview').textContent = r.script_nft || r.detail || '—';
+      msg.textContent = r.detail || 'Uygulandı.';
+      msg.className = 'prmsec-msg is-ok';
+    } catch (e) {
+      msg.textContent = e.message || String(e);
+      msg.className = 'prmsec-msg is-fail';
+    }
+  };
+
+  Promise.all([refresh(), loadFirewall()]).catch(e => {
     empty.style.display = 'block';
     empty.textContent = 'Yüklenemedi: ' + (e.message || e);
   });

@@ -4,7 +4,16 @@ Blueprint extension: Pterodactyl `activity_logs` üzerinde kural tabanlı güven
 
 ## Version
 
-`1.2.0`
+`1.3.0`
+
+## Host Firewall
+
+Admin sayfasında **Host Firewall**: Panel / Wings / SFTP / MySQL / HTTP / HTTPS / SSH için allow · deny · whitelist.
+
+- `GET/POST /extensions/prmsecguard/firewall`
+- `POST /extensions/prmsecguard/firewall/apply` — script export + panel app senkron (`prmadvanched`)
+- `GET /extensions/prmsecguard/firewall/script?format=nftables|firewalld`
+- Export: `extensions/prmsecguard/private/firewall/` (host’ta `nft -f …` veya firewalld script)
 
 ## Kurallar
 

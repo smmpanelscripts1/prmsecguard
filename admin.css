@@ -266,3 +266,111 @@
   line-height: 16px;
   vertical-align: text-top;
 }
+
+.prmsec-fw-badge {
+  display: inline-block;
+  min-width: 72px;
+  text-align: center;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+.prmsec-fw-badge.is-allow { background: #14532d; color: #bbf7d0; }
+.prmsec-fw-badge.is-deny { background: #7f1d1d; color: #fecaca; }
+.prmsec-fw-badge.is-white { background: #1e3a5f; color: #bfdbfe; }
+.prmsec-fw-off td { opacity: .55; }
+.prmsec-fw-preview { margin-top: 14px; }
+.prmsec-fw-pre {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  max-height: 220px;
+  overflow: auto;
+  background: #0b1220;
+  border: 1px solid #2c3b4c;
+  border-radius: 4px;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.prmsec-fw-audit {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.prmsec-fw-audit li {
+  padding: 6px 0;
+  border-top: 1px solid #2c3b4c;
+  font-size: 12px;
+  color: #e5e7eb;
+}
+.prmsec-fw-audit li:first-child { border-top: 0; }
+.prmsec-fw-policies {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.prmsec-fw-policies label {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  margin: 0 !important;
+  font-weight: 500;
+  color: #e5e7eb;
+  cursor: pointer;
+}
+
+.prmsec-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.prmsec-modal.is-open { display: flex; }
+.prmsec-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.72);
+}
+.prmsec-modal__card {
+  position: relative;
+  width: min(560px, 100%);
+  background: #1a2430;
+  border: 1px solid #2c3b4c;
+  border-radius: 6px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+.prmsec-modal__head,
+.prmsec-modal__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #2c3b4c;
+}
+.prmsec-modal__foot {
+  border-bottom: 0;
+  border-top: 1px solid #2c3b4c;
+  justify-content: flex-end;
+}
+.prmsec-modal__head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  color: #f3f4f6;
+}
+.prmsec-modal__body { padding: 14px; }
+.prmsec-modal__body textarea.form-control {
+  height: auto;
+  min-height: 96px;
+  background: #111827 !important;
+  border: 1px solid #3c4b5c !important;
+  color: #e5e7eb !important;
+}
