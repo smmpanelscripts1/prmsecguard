@@ -107,6 +107,7 @@ class AlertStore
 
         $severity = strtolower((string) ($filters['severity'] ?? ''));
         $rule = (string) ($filters['rule'] ?? '');
+        $kind = strtolower(trim((string) ($filters['kind'] ?? '')));
         $q = strtolower(trim((string) ($filters['q'] ?? '')));
 
         $lines = @file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
@@ -124,6 +125,12 @@ class AlertStore
             if ($rule !== '' && (string) ($row['rule'] ?? '') !== $rule) {
                 continue;
             }
+            if ($kind !== '') {
+                $rowKind = strtolower((string) (($row['meta']['kind'] ?? '') ?: ''));
+                if ($rowKind !== $kind) {
+                    continue;
+                }
+            }
             if ($q !== '') {
                 $hay = strtolower(implode(' ', [
                     $row['title'] ?? '',
@@ -131,6 +138,7 @@ class AlertStore
                     $row['ip'] ?? '',
                     $row['rule'] ?? '',
                     $row['event'] ?? '',
+                    $row['meta']['kind'] ?? '',
                 ]));
                 if (!str_contains($hay, $q)) {
                     continue;

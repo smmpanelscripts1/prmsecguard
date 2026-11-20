@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="/assets/extensions/prmsecguard/admin.style.css?v=1.3.0">
+<link rel="stylesheet" href="/assets/extensions/prmsecguard/admin.style.css?v=1.3.1">
 
 <div class="prmsec-wrap">
   <div class="row">
@@ -34,6 +34,11 @@
             <select id="prmsec-filter-rule" class="form-control input-sm" style="width:160px;display:inline-block">
               <option value="">Kural</option>
             </select>
+            <select id="prmsec-filter-kind" class="form-control input-sm" style="width:120px;display:inline-block">
+              <option value="">Tür</option>
+              <option value="hosting">Hosting</option>
+              <option value="game">Game</option>
+            </select>
             <input type="search" id="prmsec-filter-q" class="form-control input-sm" placeholder="Ara…" style="width:140px;display:inline-block">
           </div>
 
@@ -45,6 +50,7 @@
                     <th style="width:150px">Zaman</th>
                     <th style="width:80px">Seviye</th>
                     <th style="width:130px">Kural</th>
+                    <th style="width:70px">Tür</th>
                     <th>Özet</th>
                     <th style="width:150px">Aktör / IP</th>
                     <th style="width:140px"></th>
@@ -88,6 +94,7 @@
             </select>
             <button type="button" class="btn btn-success btn-sm" id="fw-save">Kaydet</button>
             <button type="button" class="btn btn-primary btn-sm" id="fw-apply">Uygula / Export</button>
+            <button type="button" class="btn btn-warning btn-sm" id="fw-cf-only" title="HTTP/HTTPS sadece Cloudflare IP">CF-only origin</button>
             <a class="btn btn-default btn-sm" id="fw-download" href="/extensions/prmsecguard/firewall/script?format=nftables">Script indir</a>
             <span class="prmsec-muted">IP’n: <code id="fw-client-ip">—</code></span>
           </div>
@@ -185,6 +192,31 @@
               <div class="prmsec-field"><label>&nbsp;</label>
                 <label class="prmsec-rule__toggle"><input type="checkbox" id="cfg-notify-autoban"> Auth fail → auto-ban (prmadvanched)</label>
               </div>
+            </div>
+          </div>
+
+          <div class="prmsec-rule" style="margin-top:12px">
+            <div class="prmsec-rule__head"><h4>Hosting / web siteleri</h4>
+              <label class="prmsec-rule__toggle"><input type="checkbox" id="cfg-hosting-en"> Aktif</label>
+            </div>
+            <p class="prmsec-muted" style="margin:0 0 10px">
+              Nginx egg siteleri aynı activity stream üzerinden izlenir. Boş nest/egg = prmhosting ayarından otomatik.
+            </p>
+            <div class="prmsec-fields">
+              <div class="prmsec-field"><label>Dosya burst</label>
+                <label class="prmsec-rule__toggle"><input type="checkbox" id="cfg-hosting-files"> mass_write/delete/download</label>
+              </div>
+              <div class="prmsec-field"><label>SFTP IP</label>
+                <label class="prmsec-rule__toggle"><input type="checkbox" id="cfg-hosting-sftp"> Yeni/gece SFTP</label>
+              </div>
+              <div class="prmsec-field"><label>Power dışı</label>
+                <label class="prmsec-rule__toggle"><input type="checkbox" id="cfg-hosting-skip-power"> Mesai dışı power’ı atla</label>
+              </div>
+              <div class="prmsec-field"><label>Eşik ölçeği</label>
+                <input class="form-control" type="number" step="0.05" min="0.3" max="1.5" id="cfg-hosting-scale" title="&lt;1 daha hassas">
+              </div>
+              <div class="prmsec-field"><label>Nest id (virgül)</label><input class="form-control" type="text" id="cfg-hosting-nests" placeholder="auto"></div>
+              <div class="prmsec-field"><label>Egg id (virgül)</label><input class="form-control" type="text" id="cfg-hosting-eggs" placeholder="auto"></div>
             </div>
           </div>
 
@@ -345,6 +377,14 @@
     document.getElementById('cfg-cron-url').value = token
       ? (location.origin + '/extensions/prmsecguard/cron?token=' + token)
       : '(token yok — üret)';
+    const h = cfg.hosting || {};
+    document.getElementById('cfg-hosting-en').checked = h.enabled !== false;
+    document.getElementById('cfg-hosting-files').checked = h.cover_file_burst !== false;
+    document.getElementById('cfg-hosting-sftp').checked = h.cover_sftp_ip !== false;
+    document.getElementById('cfg-hosting-skip-power').checked = h.skip_off_hours_power !== false;
+    document.getElementById('cfg-hosting-scale').value = h.file_threshold_scale ?? 0.75;
+    document.getElementById('cfg-hosting-nests').value = (h.nest_ids || []).join(', ');
+    document.getElementById('cfg-hosting-eggs').value = (h.egg_ids || []).join(', ');
 
     const on = RULES.filter(r => cfg[r.key]?.enabled).length;
     document.getElementById('prmsec-rules-on').textContent = on + ' / ' + RULES.length;
@@ -378,6 +418,17 @@
         lookback_days: 7,
         multiplier: Number(document.getElementById('cfg-baseline-mult').value || 3),
       },
+      hosting: {
+        enabled: document.getElementById('cfg-hosting-en').checked,
+        cover_file_burst: document.getElementById('cfg-hosting-files').checked,
+        cover_sftp_ip: document.getElementById('cfg-hosting-sftp').checked,
+        skip_off_hours_power: document.getElementById('cfg-hosting-skip-power').checked,
+        file_threshold_scale: Number(document.getElementById('cfg-hosting-scale').value || 0.75),
+        nest_ids: document.getElementById('cfg-hosting-nests').value
+          .split(/[\s,;]+/).map(x => parseInt(x, 10)).filter(n => n > 0),
+        egg_ids: document.getElementById('cfg-hosting-eggs').value
+          .split(/[\s,;]+/).map(x => parseInt(x, 10)).filter(n => n > 0),
+      },
     };
     RULES.forEach(r => {
       const block = { enabled: !!document.querySelector(`[data-rule-en="${r.key}"]`)?.checked };
@@ -402,10 +453,15 @@
       const server = a.server_name ? `<div class="prmsec-muted">${esc(a.server_name)}</div>` : '';
       const banBtn = (banAvailable && a.ip && (a.rule === 'auth_fail_burst' || a.meta?.can_ban))
         ? `<button type="button" class="btn btn-xs btn-danger" data-ban="${esc(a.ip)}" data-alert="${esc(a.id)}">Ban</button>` : '';
+      const kind = (a.meta && a.meta.kind) || '';
+      const kindBadge = kind
+        ? `<span class="prmsec-fw-badge ${kind === 'hosting' ? 'is-white' : 'is-allow'}">${esc(kind)}</span>`
+        : '—';
       tr.innerHTML = `
         <td>${esc(fmtTs(a.ts))}</td>
         <td><span class="prmsec-sev ${esc(sev)}">${esc(sev)}</span></td>
         <td>${esc(ruleLabel[a.rule] || a.rule)}</td>
+        <td>${kindBadge}</td>
         <td><span class="prmsec-title">${esc(a.title || '')}</span><div class="prmsec-muted">${esc(a.detail || '')}</div>${server}</td>
         <td>${esc(who || '—')}</td>
         <td class="prmsec-row-actions">
@@ -445,10 +501,12 @@
     const openOnly = document.getElementById('prmsec-open-only').checked;
     const sev = document.getElementById('prmsec-filter-sev').value;
     const rule = document.getElementById('prmsec-filter-rule').value;
+    const kind = document.getElementById('prmsec-filter-kind').value;
     const q = document.getElementById('prmsec-filter-q').value.trim();
     const p = new URLSearchParams({ limit: '100', open: openOnly ? '1' : '0' });
     if (sev) p.set('severity', sev);
     if (rule) p.set('rule', rule);
+    if (kind) p.set('kind', kind);
     if (q) p.set('q', q);
     return p.toString();
   }
@@ -471,7 +529,7 @@
   buildRuleCards();
 
   document.getElementById('prmsec-refresh').onclick = () => refresh().catch(console.error);
-  ['prmsec-open-only','prmsec-filter-sev','prmsec-filter-rule'].forEach(id => {
+  ['prmsec-open-only','prmsec-filter-sev','prmsec-filter-rule','prmsec-filter-kind'].forEach(id => {
     document.getElementById(id).onchange = () => refresh().catch(console.error);
   });
   document.getElementById('prmsec-filter-q').onkeydown = (e) => {
@@ -690,6 +748,23 @@
       if (r.config) renderFirewall(r.config);
       document.getElementById('fw-script-preview').textContent = r.script_nft || r.detail || '—';
       msg.textContent = r.detail || 'Uygulandı.';
+      msg.className = 'prmsec-msg is-ok';
+    } catch (e) {
+      msg.textContent = e.message || String(e);
+      msg.className = 'prmsec-msg is-fail';
+    }
+  };
+  document.getElementById('fw-cf-only').onclick = async () => {
+    if (!confirm('HTTP/HTTPS sadece Cloudflare IP kabul edecek (whitelist). Devam?')) return;
+    const msg = document.getElementById('fw-msg');
+    msg.className = 'prmsec-msg';
+    try {
+      const r = await api('/firewall/cf-only', {
+        method: 'POST',
+        body: JSON.stringify({ include_me: false, apply: false }),
+      });
+      renderFirewall(r.firewall || {});
+      msg.textContent = 'CF-only ayarlandı (' + (r.cloudflare_cidrs || 0) + ' CIDR). Kaydet → Uygula ile host script üret.';
       msg.className = 'prmsec-msg is-ok';
     } catch (e) {
       msg.textContent = e.message || String(e);

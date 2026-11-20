@@ -51,22 +51,31 @@ class HostFirewall
                 'note' => 'MariaDB publish (host :3307) — varsayılan kapalı',
             ],
             'http' => [
-                'label' => 'HTTP',
+                'label' => 'HTTP (edge)',
                 'ports' => [80],
                 'proto' => 'tcp',
                 'enabled' => true,
                 'policy' => 'allow',
                 'sources' => [],
-                'note' => 'Site trafiği (HTTP)',
+                'note' => 'Edge nginx — CF-only için policy=whitelist + CF IP',
             ],
             'https' => [
-                'label' => 'HTTPS',
+                'label' => 'HTTPS (edge)',
                 'ports' => [443],
                 'proto' => 'tcp',
                 'enabled' => true,
                 'policy' => 'allow',
                 'sources' => [],
-                'note' => 'Site trafiği (HTTPS)',
+                'note' => 'Edge TLS — CF-only için policy=whitelist + CF IP',
+            ],
+            'site_alloc' => [
+                'label' => 'Site allocation',
+                'ports' => [8082, 8083, 8084, 8085, 8086, 8087, 8088, 8089, 8090],
+                'proto' => 'tcp',
+                'enabled' => true,
+                'policy' => 'deny',
+                'sources' => [],
+                'note' => 'Wings site portları — WAN kapalı (edge localhost kullanır)',
             ],
             'ssh' => [
                 'label' => 'SSH',
@@ -78,6 +87,51 @@ class HostFirewall
                 'note' => 'Host SSH — dikkatli kullan',
             ],
         ];
+    }
+
+    /** Cloudflare published IPv4 ranges (update periodically). */
+    public static function cloudflareIpv4(): array
+    {
+        return [
+            '173.245.48.0/20',
+            '103.21.244.0/22',
+            '103.22.200.0/22',
+            '103.31.4.0/22',
+            '141.101.64.0/18',
+            '108.162.192.0/18',
+            '190.93.240.0/20',
+            '188.114.96.0/20',
+            '197.234.240.0/22',
+            '198.41.128.0/17',
+            '162.158.0.0/15',
+            '104.16.0.0/13',
+            '104.24.0.0/14',
+            '172.64.0.0/13',
+            '131.0.72.0/22',
+        ];
+    }
+
+    /**
+     * HTTP/HTTPS → whitelist only Cloudflare (and optional extra sources).
+     *
+     * @param list<string> $extra
+     */
+    public static function applyCloudflareOnly(array $extra = []): array
+    {
+        $cfg = self::get();
+        $sources = array_values(array_unique(array_merge(self::cloudflareIpv4(), $extra)));
+        foreach (['http', 'https'] as $id) {
+            if (!isset($cfg['services'][$id])) {
+                continue;
+            }
+            $cfg['services'][$id]['enabled'] = true;
+            $cfg['services'][$id]['policy'] = 'whitelist';
+            $cfg['services'][$id]['sources'] = $sources;
+            $cfg['services'][$id]['note'] = 'CF-only origin (Cloudflare IP whitelist)';
+        }
+        self::put($cfg);
+
+        return self::get();
     }
 
     public static function defaults(): array

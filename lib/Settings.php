@@ -52,11 +52,18 @@ class Settings
                 'lookback_days' => 7,
                 'multiplier' => 3.0,
             ],
-            // Hosting (nginx egg /sites) uses the same activity stream — mass_write, mass_download, sftp_* apply.
+            // Web/hosting (nginx egg) — same activity stream, tagged + slightly tighter file thresholds.
             'hosting' => [
+                'enabled' => true,
                 'cover_file_burst' => true,
                 'cover_sftp_ip' => true,
-                'note' => 'Hosting sites share SecGuard rules; no per-site allowlist in V1.',
+                'skip_off_hours_power' => true,
+                // Empty = auto from prmhosting Settings nest_id/egg_id when available.
+                'nest_ids' => [],
+                'egg_ids' => [],
+                // <1 = more sensitive for hosting file bursts (e.g. 0.75 → %25 daha sıkı).
+                'file_threshold_scale' => 0.75,
+                'note' => 'Hosting siteleri SecGuard ile izlenir (dosya/SFTP/API). Alert meta.kind=hosting|game.',
             ],
         ];
     }

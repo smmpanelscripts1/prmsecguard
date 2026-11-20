@@ -90,6 +90,7 @@ Route::get('/alerts', function (Request $request) use ($prmSecGuardLoad, $resolv
     $filters = [
         'severity' => (string) $request->query('severity', ''),
         'rule' => (string) $request->query('rule', ''),
+        'kind' => (string) $request->query('kind', ''),
         'q' => (string) $request->query('q', ''),
     ];
     $alerts = $resolveNames(\PrmSecGuard\AlertStore::list($limit, $openOnly, $filters));
@@ -402,6 +403,30 @@ Route::post('/firewall/apply', function (Request $request) use ($prmSecGuardLoad
     $dry = $request->boolean('dry_run', false);
 
     return response()->json(\PrmSecGuard\HostFirewall::apply($actor, $dry));
+})->middleware(['auth', AdminAuthenticate::class]);
+
+Route::post('/firewall/cf-only', function (Request $request) use ($prmSecGuardLoad) {
+    $prmSecGuardLoad();
+    $extra = [];
+    if ($request->boolean('include_me')) {
+        $ip = (string) $request->ip();
+        if ($ip !== '' && $ip !== '127.0.0.1') {
+            $extra[] = $ip;
+        }
+    }
+    $cfg = \PrmSecGuard\HostFirewall::applyCloudflareOnly($extra);
+    $actor = optional($request->user())->username ?: optional($request->user())->email ?: 'admin';
+    $apply = $request->boolean('apply', false)
+        ? \PrmSecGuard\HostFirewall::apply($actor, false)
+        : null;
+
+    return response()->json([
+        'ok' => true,
+        'firewall' => $cfg,
+        'cloudflare_cidrs' => count(\PrmSecGuard\HostFirewall::cloudflareIpv4()),
+        'apply' => $apply,
+        'client_ip' => (string) $request->ip(),
+    ]);
 })->middleware(['auth', AdminAuthenticate::class]);
 
 Route::get('/firewall/script', function (Request $request) use ($prmSecGuardLoad) {

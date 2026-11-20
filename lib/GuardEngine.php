@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Event;
 use Pterodactyl\Events\ActivityLogged;
 use Pterodactyl\Models\ActivityLog;
 use Pterodactyl\Models\ApiKey;
+use Pterodactyl\Models\Server;
 use Throwable;
 
 class GuardEngine
@@ -78,7 +79,10 @@ class GuardEngine
         }
 
         if (self::isSftpMutateEvent($event)) {
-            self::checkSftpNewIp($cfg, $log, $serverId, $actorId, $ip);
+            $skipSftp = self::isHostingServer($serverId, $cfg) && empty($cfg['hosting']['cover_sftp_ip']);
+            if (!$skipSftp) {
+                self::checkSftpNewIp($cfg, $log, $serverId, $actorId, $ip);
+            }
         }
 
         if ($apiKeyId) {
@@ -87,7 +91,10 @@ class GuardEngine
         }
 
         if (str_starts_with($event, 'server:power.')) {
-            self::checkOffHoursPower($cfg, $log, $serverId, $actorId);
+            $hosting = self::isHostingServer($serverId, $cfg);
+            if (!($hosting && !empty($cfg['hosting']['skip_off_hours_power']))) {
+                self::checkOffHoursPower($cfg, $log, $serverId, $actorId);
+            }
             self::checkSubuserRapid($cfg, $log, $serverId, $actorId);
             self::checkLateral($cfg, $log, $serverId, $actorId);
         }
@@ -162,6 +169,12 @@ class GuardEngine
             isset($alert['server_id']) ? (int) $alert['server_id'] : null
         )) {
             return;
+        }
+
+        $sid = isset($alert['server_id']) ? (int) $alert['server_id'] : null;
+        if ($sid && empty($alert['meta']['kind'])) {
+            $alert['meta'] = is_array($alert['meta'] ?? null) ? $alert['meta'] : [];
+            $alert['meta']['kind'] = self::isHostingServer($sid, $cfg) ? 'hosting' : 'game';
         }
 
         $row = AlertStore::append($alert, $cfg);
@@ -309,6 +322,15 @@ class GuardEngine
             'mass_download' => 'download',
             default => '',
         };
+        // Hosting sites: tighter file burst thresholds when enabled.
+        if (in_array($ruleKey, ['mass_delete', 'mass_write', 'mass_download'], true)
+            && self::isHostingServer($serverId, $cfg)
+            && !empty($cfg['hosting']['cover_file_burst'])) {
+            $scale = (float) ($cfg['hosting']['file_threshold_scale'] ?? 0.75);
+            if ($scale > 0 && $scale < 1.5) {
+                $base = max(2, (int) round($base * $scale));
+            }
+        }
         $threshold = self::threshold($cfg, $ruleKey, $base, $family, $serverId);
         $window = max(30, (int) ($rule['window_sec'] ?? 300));
         $since = $log->timestamp->copy()->subSeconds($window);
@@ -729,5 +751,64 @@ class GuardEngine
         }
 
         return null;
+    }
+
+    /**
+     * Nest/egg id lists for hosting (web) servers. Empty lists auto-fill from prmhosting.
+     *
+     * @return array{eggIds: list<int>, nestIds: list<int>}
+     */
+    private static function hostingIds(array $cfg): array
+    {
+        $h = is_array($cfg['hosting'] ?? null) ? $cfg['hosting'] : [];
+        $eggIds = array_values(array_unique(array_filter(array_map('intval', $h['egg_ids'] ?? []))));
+        $nestIds = array_values(array_unique(array_filter(array_map('intval', $h['nest_ids'] ?? []))));
+
+        if ($eggIds === [] && $nestIds === []) {
+            try {
+                $hostSettings = '/blueprint_extensions/prmhosting/lib/Settings.php';
+                if (!class_exists(\PrmHosting\Settings::class) && is_file($hostSettings)) {
+                    require_once $hostSettings;
+                }
+                if (class_exists(\PrmHosting\Settings::class)) {
+                    $hs = \PrmHosting\Settings::get();
+                    if (!empty($hs['egg_id'])) {
+                        $eggIds[] = (int) $hs['egg_id'];
+                    }
+                    if (!empty($hs['nest_id'])) {
+                        $nestIds[] = (int) $hs['nest_id'];
+                    }
+                }
+            } catch (Throwable $e) {
+            }
+        }
+
+        return ['eggIds' => $eggIds, 'nestIds' => $nestIds];
+    }
+
+    private static function isHostingServer(?int $serverId, array $cfg): bool
+    {
+        if (!$serverId || empty($cfg['hosting']['enabled'])) {
+            return false;
+        }
+        $ids = self::hostingIds($cfg);
+        if ($ids['eggIds'] === [] && $ids['nestIds'] === []) {
+            return false;
+        }
+        try {
+            $server = Server::query()->find($serverId, ['id', 'egg_id', 'nest_id']);
+            if (!$server) {
+                return false;
+            }
+            if ($ids['eggIds'] !== [] && in_array((int) $server->egg_id, $ids['eggIds'], true)) {
+                return true;
+            }
+            if ($ids['nestIds'] !== [] && in_array((int) $server->nest_id, $ids['nestIds'], true)) {
+                return true;
+            }
+        } catch (Throwable $e) {
+        }
+
+        return false;
     }
 }

@@ -4,16 +4,22 @@ Blueprint extension: Pterodactyl `activity_logs` üzerinde kural tabanlı güven
 
 ## Version
 
-`1.3.0`
+`1.3.1`
+
+## Hosting / web
+
+Nginx egg siteleri aynı activity stream ile izlenir. Alert `meta.kind` = `hosting` | `game`. Dosya burst eşikleri `file_threshold_scale` (varsayılan 0.75) ile sıkılaşır. Nest/egg boşsa `prmhosting` ayarından alınır.
 
 ## Host Firewall
 
-Admin sayfasında **Host Firewall**: Panel / Wings / SFTP / MySQL / HTTP / HTTPS / SSH için allow · deny · whitelist.
+Admin sayfasında **Host Firewall**: Panel / Wings / SFTP / MySQL / HTTP / HTTPS / Site allocation / SSH için allow · deny · whitelist.
 
 - `GET/POST /extensions/prmsecguard/firewall`
 - `POST /extensions/prmsecguard/firewall/apply` — script export + panel app senkron (`prmadvanched`)
+- `POST /extensions/prmsecguard/firewall/cf-only` — HTTP/HTTPS → sadece Cloudflare IP
 - `GET /extensions/prmsecguard/firewall/script?format=nftables|firewalld`
 - Export: `extensions/prmsecguard/private/firewall/` (host’ta `nft -f …` veya firewalld script)
+- `site_alloc` (8082–8090) varsayılan **deny**; edge localhost kullanır
 
 ## Kurallar
 
